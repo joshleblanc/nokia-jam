@@ -1,0 +1,5 @@
+scale_quality=0
+hd=true
+highdpi=true
+hd_letterbox=true
+hd_max_scale=400
