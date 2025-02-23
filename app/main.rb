@@ -195,17 +195,17 @@ def render_room(args)
         y: y * MACHINE_SIZE + 4,
         w: MACHINE_SIZE,
         h: MACHINE_SIZE,
-        **PALLETTE[:secondary],
-        primitive_marker: :border
+        **PALLETTE[:primary],
+        primitive_marker: :solid
       }
-
+      
       nokia.primitives << {
         x: x * MACHINE_SIZE + (13 * (x + 1)),
         y: y * MACHINE_SIZE + 4,
         w: MACHINE_SIZE,
         h: MACHINE_SIZE,
-        **PALLETTE[:primary],
-        primitive_marker: :solid
+        **PALLETTE[:secondary],
+        primitive_marker: :border
       }
 
       if x == args.state.selection.x && y == args.state.selection.y
