@@ -51,6 +51,7 @@ def boot(args)
     time: 0,
     view: :room,
     confirm_open: false,
+    confirm_selection: 0,
     selection: {
       x: 0,
       y: 0
@@ -79,13 +80,14 @@ def tick(args)
   }
 
   if args.state.view == :room
-    handle_room_input(args)
+    handle_room_input(args) unless args.state.confirm_open
     render_room_status_bar(args)
     render_room(args)
     # render_info_bar(args)
   end 
 
   if args.state.confirm_open
+    handle_confirm_input(args)
     render_confirm(args)
   end
 
@@ -103,6 +105,14 @@ end
 
 def nokia 
   $args.outputs[:nokia]
+end
+
+def handle_confirm_input(args)
+  if args.inputs.keyboard.key_down.left
+    args.state.confirm_selection = (args.state.confirm_selection - 1).clamp(0, 1)
+  elsif args.inputs.keyboard.key_down.right
+    args.state.confirm_selection = (args.state.confirm_selection + 1).clamp(0, 1)
+  end
 end
 
 def handle_room_input(args)
@@ -184,6 +194,8 @@ def render_confirm(args)
       primitive_marker: :label
     }
   end
+
+  [  ]
 end
 
 def render_room(args)
@@ -198,7 +210,7 @@ def render_room(args)
         **PALLETTE[:primary],
         primitive_marker: :solid
       }
-      
+
       nokia.primitives << {
         x: x * MACHINE_SIZE + (13 * (x + 1)),
         y: y * MACHINE_SIZE + 4,
