@@ -35,39 +35,100 @@ PALLETTE = {
 }
 
 STATUS_BAR_H = 12
-MACHINE_SIZE = 16
+BUILDING_SIZE = 16
 
-MILL = {
-  speed: 0,
-  production: 0,
-  level: 0,
-  purchased: false,
-  turn_state: 0,
-  upgrade_cost: 50,
-  max_grain: 100,
-  grain_amount: 0,
-  production_counter: 0
-}
+# Define building types
+BUILDINGS = [
+  {
+    name: "House",
+    short_name: "Hou.",
+    base_cost: 10,
+    income: 1,
+    visible_threshold: 0
+  },
+  {
+    name: "Windmill",
+    short_name: "Win.",
+    base_cost: 150,
+    income: 10,
+    visible_threshold: 50
+  },
+  {
+    name: "Shop",
+    short_name: "Sho.",
+    base_cost: 1000,
+    income: 50,
+    visible_threshold: 500
+  },
+  {
+    name: "Store",
+    short_name: "Sto.",
+    base_cost: 5000,
+    income: 200,
+    visible_threshold: 2000
+  },
+  {
+    name: "Factory",
+    short_name: "Fac.",
+    base_cost: 20000,
+    income: 1000,
+    visible_threshold: 10000
+  },
+  {
+    name: "Bank",
+    short_name: "Ban.",
+    base_cost: 100000,
+    income: 5000,
+    visible_threshold: 50000
+  },
+  {
+    name: "Tower",
+    short_name: "Tow.",
+    base_cost: 500000,
+    income: 20000,
+    visible_threshold: 200000
+  },
+  {
+    name: "Castle",
+    short_name: "Cas.",
+    base_cost: 2000000,
+    income: 100000,
+    visible_threshold: 1000000
+  },
+  {
+    name: "Kingdom",
+    short_name: "Kin.",
+    base_cost: 10000000,
+    income: 500000,
+    visible_threshold: 5000000
+  }
+]
 
 def boot(args)
   args.state = {
-    level: 1,
-    money: 50,
+    money: 0,
+    income_per_second: 0,
     time: 0,
-    view: :room,
+    view: :main,
     confirm_open: false,
     confirm_selection: 0,
-    mill_selection: 0,
-    grind_selection: 0,
     selection: {
-      x: 0,
-      y: 0
+      idx: 0
     },
-    mills: [
-      [MILL.dup, MILL.dup],
-      [MILL.dup, MILL.dup]
-    ]
+    buildings: []
   }
+  
+  BUILDINGS.each do |building_type|
+    args.state.buildings << {
+      name: building_type.name,
+      short_name: building_type.short_name,
+      cost: building_type.base_cost,
+      income: building_type.income,
+      base_cost: building_type.base_cost,
+      count: 0,
+      visible_threshold: building_type.visible_threshold
+    }
+  end
 end
 
 def tick(args)
@@ -84,41 +145,28 @@ def tick(args)
     h: 1,
   }
 
-  process_mill_production(args) if args.state.view != :grind
+  process_passive_income(args)
 
   if args.state.confirm_open
     handle_confirm_input(args)
-  elsif args.state.view == :room
-    handle_room_input(args)
-  elsif args.state.view == :mill
-    handle_mill_input(args)
-  elsif args.state.view == :grind
-    handle_grind_input(args)
+  else
+    handle_main_input(args)
   end
 
-  if args.state.view == :room
-    render_room_status_bar(args)
-    render_room(args)
-  elsif args.state.view == :mill
-    render_mill_status_bar(args)
-    render_mill(args)
-  elsif args.state.view == :grind
-    render_mill_status_bar(args)
-    render_grind_screen(args)
-  end 
-
-  if args.state.confirm_open 
+  render_status_bar(args)
+  render_buildings(args)
+  
+  if args.state.confirm_open
     render_confirm(args)
   end
 
+  # Render the Nokia screen to the main output
   args.outputs.sprites << {
-    x: WIDTH / 2,
-    y: HEIGHT / 2,
+    x: OFFSET_X,
+    y: OFFSET_Y,
     w: ZOOMED_WIDTH,
     h: ZOOMED_HEIGHT,
-    anchor_x: 0.5,
-    anchor_y: 0.5,
-    path: :nokia,
+    path: :nokia
   }
 end
 
@@ -126,172 +174,81 @@ def nokia
   $args.outputs[:nokia]
 end
 
-def calculate_cost(base_cost, level, multiplier = 1.15)
-  (base_cost * (multiplier ** level)).floor
+def calculate_cost(base_cost, count, multiplier = 1.15)
+  (base_cost * (multiplier ** count)).to_i
 end
 
 def handle_confirm_input(args)
-  if args.inputs.keyboard.key_down.left
-    args.state.confirm_selection = (args.state.confirm_selection - 1).clamp(0, 1)
-  elsif args.inputs.keyboard.key_down.right
-    args.state.confirm_selection = (args.state.confirm_selection + 1).clamp(0, 1)
+  if args.inputs.keyboard.key_down.left || args.inputs.keyboard.key_down.up
+    args.state.confirm_selection = 0
+  elsif args.inputs.keyboard.key_down.right || args.inputs.keyboard.key_down.down
+    args.state.confirm_selection = 1
   elsif args.inputs.keyboard.key_down.space
     process_confirm(args)
   end
 end
 
-def handle_mill_input(args)
+def handle_main_input(args)
+  visible_buildings = args.state.buildings.select { |b| args.state.money >= b.visible_threshold || b[:count] > 0 }
+  
+  # Calculate grid layout dimensions
+  columns = 3
+  rows = (visible_buildings.length / columns.to_f).ceil
+  
   if args.inputs.keyboard.key_down.left
-    args.state.mill_selection = (args.state.mill_selection - 1).clamp(0, 2)
+    args.state.selection.idx = (args.state.selection.idx - 1) % visible_buildings.length
   elsif args.inputs.keyboard.key_down.right
-    args.state.mill_selection = (args.state.mill_selection + 1).clamp(0, 2)
+    args.state.selection.idx = (args.state.selection.idx + 1) % visible_buildings.length
+  elsif args.inputs.keyboard.key_down.up
+    args.state.selection.idx = (args.state.selection.idx - columns) % visible_buildings.length
+  elsif args.inputs.keyboard.key_down.down
+    args.state.selection.idx = (args.state.selection.idx + columns) % visible_buildings.length
   elsif args.inputs.keyboard.key_down.space
-    process_mill_button_select(args)
+    process_building_select(args)
+  elsif args.inputs.keyboard.key_down.g
+    # Generate 1 money when pressing G
+    args.state.money += 1
   end
 end
 
-def handle_grind_input(args)
-  mill = args.state.selected_mill
+def process_building_select(args)
+  visible_buildings = args.state.buildings.select { |b| args.state.money >= b[:visible_threshold] }
+  building = visible_buildings[args.state.selection.idx]
   
-  if args.inputs.keyboard.key_down.space
-    if args.state.grind_selection == 1
-      if mill.level == 0
-        # For non-upgraded mills, space turns the wheel manually
-        if !mill.grain_amount || mill.grain_amount < mill.max_grain
-          # Add grain
-          mill.grain_amount ||= 0
-          mill.grain_amount += 1
-          mill.grain_amount = [mill.grain_amount, mill.max_grain].min
+  if building
+    confirm(args, "Buy #{building.name} for $#{building.cost}?") do |result|
+      if result && args.state.money >= building.cost
+        args.state.money -= building.cost
+        building[:count] += 1
+        args.state.income_per_second += building.income
         
-        # Animate mill turning
-        mill.turn_state = (mill.turn_state + 1) % 4
+        # Update the cost for the next purchase
+        building.cost = calculate_cost(
+          building.base_cost, 
+          building[:count]
+        )
       end
-      else
-        # For upgraded mills, just return to mill view
-        args.state.view = :mill
-      end
-    elsif args.state.grind_selection == 0
-      args.state.view = :mill
     end
-  elsif args.inputs.keyboard.key_down.right
-    args.state.grind_selection = (args.state.grind_selection + 1).clamp(0, 1)
-  elsif args.inputs.keyboard.key_down.left
-    args.state.grind_selection = (args.state.grind_selection - 1).clamp(0, 1)
-  end
-  
-  # Return to mill view if the mill is full
-  if mill.grain_amount && mill.grain_amount >= mill.max_grain
-    args.state.view = :mill
   end
 end
 
-def process_mill_button_select(args)
-  if args.state.mill_selection == 0
-    cost = calculate_cost(args.state.selected_mill.upgrade_cost, args.state.selected_mill.level)
-    if args.state.money >= cost
-      args.state.money -= cost
-      args.state.selected_mill.level += 1
-    end 
-  elsif args.state.mill_selection == 1
-    if args.state.selected_mill.grain_amount && args.state.selected_mill.grain_amount >= args.state.selected_mill.max_grain
-      # Collect the grain (sell it for money)
-      grain_value = args.state.selected_mill.grain_amount * (1 + args.state.selected_mill.level * 0.1)
-      args.state.money += grain_value.to_i
-      args.state.selected_mill.grain_amount = 0
-    else
-      # Only go to grinding view for level 0 mills
-      if args.state.selected_mill.level == 0
-        args.state.grind_selection = 1
-        args.state.view = :grind
-      end
-    end
-  elsif args.state.mill_selection == 2
-    args.state.selected_mill = nil
-    args.state.view = :room
-  end
-end
-
-def process_mill_production(args)
-  args.state.mills.flatten.each do |mill|
-    # Skip mills that are not purchased or not upgraded (level 0)
-    next unless mill && mill.purchased && mill.level > 0
-    
-    # Skip mills that are already full
-    next if mill.grain_amount && mill.grain_amount >= mill.max_grain
-    
-    # Initialize production_counter if it doesn't exist
-    mill.production_counter ||= 0
-    
-    # Calculate production speed based on mill level
-    # Lower level = slower production
-    production_speed = 10 - [mill.level * 2, 9].min # Range from 10 (slowest) to 1 (fastest)
-    
-    # Increment counter
-    mill.production_counter += 1
-    
-    # Only produce grain when counter hits the production speed
-    if mill.production_counter >= production_speed
-      mill.production_counter = 0
-      
-      # Add grain based on level
-      mill.grain_amount ||= 0
-      mill.grain_amount += 1
-      mill.grain_amount = [mill.grain_amount, mill.max_grain].min
-      
-      # Update turn state for animation
-      mill.turn_state = (mill.turn_state + 1) % 4
-    end
-  end
+def process_passive_income(args)
+  # Add income every frame (60 fps)
+  args.state.money += args.state.income_per_second / 60.0
 end
 
 def process_confirm(args)
-  if args.state.confirm_selection == 0
-    args.state.confirm_block.call(true)
-  else
-    args.state.confirm_block.call(false)
-  end
+  args.state.confirm_result = args.state.confirm_selection == 0
   args.state.confirm_open = false
+  args.state.confirm_block.call(args.state.confirm_result) if args.state.confirm_block
   args.state.confirm_block = nil
-  args.state.confirm_selection = 0
-end
-
-def handle_room_input(args)
-  if args.inputs.keyboard.key_down.left
-    args.state.selection.x = (args.state.selection.x - 1).clamp(0, 1)
-  elsif args.inputs.keyboard.key_down.right
-    args.state.selection.x = (args.state.selection.x + 1).clamp(0, 1)
-  elsif args.inputs.keyboard.key_down.up
-    args.state.selection.y = (args.state.selection.y - 1).clamp(0, 1)
-  elsif args.inputs.keyboard.key_down.down
-    args.state.selection.y = (args.state.selection.y + 1).clamp(0, 1)
-  elsif args.inputs.keyboard.key_down.space
-    process_mill_select(args)
-  end
-end
-
-def process_mill_select(args)
-  mill = args.state.mills[args.state.selection.y][args.state.selection.x]
-  if mill.purchased
-    args.state.selected_mill = mill
-    args.state.view = :mill
-  else
-    confirm(args, "Do you want to buy a mill for $#{mill.upgrade_cost}?") do |result|
-      if result && args.state.money >= mill.upgrade_cost
-        mill.purchased = true
-        args.state.money -= mill.upgrade_cost
-        args.state.mills.flatten.each do |m|
-          next if m == mill
-          m.upgrade_cost += 50
-        end
-      end
-    end
-  end
 end
 
 def confirm(args, message, &block)
-  args.state.confirm_message = message
-  args.state.confirm_block = block
   args.state.confirm_open = true
+  args.state.confirm_message = message
+  args.state.confirm_selection = 0
+  args.state.confirm_block = block
 end
 
 def split_text(t, max_w) 
@@ -313,728 +270,206 @@ end
 
 def render_confirm(args)
   nokia.primitives << {
-    x: 4, y: 4,
-    w: NOKIA_WIDTH - 8,
-    h: NOKIA_HEIGHT - 8,
+    x: 10,
+    y: 10,
+    w: NOKIA_WIDTH - 20,
+    h: NOKIA_HEIGHT - 20,
+    **PALLETTE[:primary],
+    primitive_marker: :solid
+  }
+  
+  nokia.primitives << {
+    x: 11,
+    y: 11,
+    w: NOKIA_WIDTH - 22,
+    h: NOKIA_HEIGHT - 22,
     **PALLETTE[:secondary],
     primitive_marker: :solid
   }
-
-  nokia.primitives << { 
-    x: 4, y: 4,
-    w: NOKIA_WIDTH - 8,
-    h: NOKIA_HEIGHT - 8,
-    **PALLETTE[:primary],
-    primitive_marker: :border
-  }
-
-  split_text(args.state.confirm_message, NOKIA_WIDTH - 8).each_with_index do |line, y|
-    nokia.primitives << {
-      x: 6, y: (NOKIA_HEIGHT - 8) - y * 6,
-      text: line,
-      size_px: 6,
-      vertical_alignment_enum: 1,
-      font: "tiny.ttf",
-      **PALLETTE[:primary],
-      primitive_marker: :label
-    }
-  end
-
-  ["Okay", "Cancel"].each_with_index do |text, x|
-    selected = x == args.state.confirm_selection
-    text_color = selected ? PALLETTE[:secondary] : PALLETTE[:primary]
-    background_color = selected ? PALLETTE[:primary] : PALLETTE[:secondary]
-    
-    w, h = $gtk.calcstringbox(text, size_px: 6, font: "tiny.ttf")
-
-    nokia.primitives << {
-      x: x * 24 + 17, y: 12,
-      text: text,
-      size_px: 6,
-      w: w + 3,
-      h: h + 3,
-      **background_color,
-      primitive_marker: :solid
-    }
-    
-    nokia.primitives << {
-      x: x * 24 + 17, y: 12,
-      text: text,
-      size_px: 6,
-      w: w + 3,
-      h: h + 3,
-      **PALLETTE[:primary],
-      primitive_marker: :border
-    }
-
-    nokia.primitives << {
-      x: x * 24 + 19, y: 14,
-      w: 16, h: 16,
-      text: text,
-      size_px: 6,
-      vertical_alignment_enum: 0,
-      font: "tiny.ttf",
-      **text_color,
-      primitive_marker: :label
-    }
-  end
-end
-
-def render_room(args)
-  w_raw = (NOKIA_WIDTH - 4) / args.state.mills.length
-  h_raw = (NOKIA_HEIGHT - 20) / args.state.mills.first.length
-
-  width  = w_raw.to_i
-  height = h_raw.to_i
-
-  hovered_mill = args.state.mills[args.state.selection.y][args.state.selection.x]
-  nokia.primitives << {
-    x: args.state.selection.x * width + 2,
-    y: (args.state.mills.first.length - args.state.selection.y - 1) * height + 4,
-    w: width, h: height,
-    **PALLETTE[:primary],
-    primitive_marker: :border
-  }
-
-  args.state.mills.each_with_index do |row, x|
-    row.each_with_index do |mill, y|
-      if mill.purchased 
-        nokia.primitives << {
-          x: x * width + 2,
-          y: (args.state.mills.first.length - y - 1) * height + 4,
-          w: width,
-          h: height,
-          **PALLETTE[:primary],
-          primitive_marker: :solid
-        }
-        
-        render_mill_90(
-          x * width + 2 + width / 2, 
-          (args.state.mills.first.length - y - 1) * height + 4 + height / 2
-        )
-        
-        if mill.grain_amount && mill.grain_amount > 0
-          fill_percentage = mill.grain_amount.to_f / mill.max_grain
-          fill_height = (height * fill_percentage).to_i.clamp(1, height - 2)
-          
-          nokia.primitives << {
-            x: x * width + 2 + width - 4,
-            y: (args.state.mills.first.length - y - 1) * height + 4 + 1,
-            w: 3,
-            h: height - 2,
-            **PALLETTE[:secondary],
-            primitive_marker: :border
-          }
-          
-          nokia.primitives << {
-            x: x * width + 2 + width - 4,
-            y: (args.state.mills.first.length - y - 1) * height + 4 + 1,
-            w: 3,
-            h: fill_height,
-            **PALLETTE[:secondary],
-            primitive_marker: :solid
-          }
-          
-          if mill.grain_amount >= mill.max_grain
-            nokia.primitives << {
-              x: x * width + 2 + 2,
-              y: (args.state.mills.first.length - y - 1) * height + 4 + height - 4,
-              w: 4,
-              h: 3,
-              **PALLETTE[:secondary],
-              primitive_marker: :solid
-            }
-          end
-        end
-      else
-        nokia.primitives << {
-          x: x * width + 2 + (width / 2) - 2,
-          y: (args.state.mills.first.length - y - 1) * height + 4 + (height / 2) - 2,
-          w: 4,
-          h: 4,
-          **PALLETTE[:primary],
-          primitive_marker: :solid
-        }
-      end
+  
+  y_offset = NOKIA_HEIGHT - 12
+  
+  if args.state.confirm_message
+    lines = split_text(args.state.confirm_message, NOKIA_WIDTH - 22)
+    lines.each do |line|
+      nokia.primitives << {
+        x: NOKIA_WIDTH / 2,
+        y: y_offset,
+        text: line,
+        **PALLETTE[:primary],
+        alignment_enum: 1, # Center aligned
+        size_px: 6,
+        font: "tiny.ttf",
+        primitive_marker: :label
+      }
+      y_offset -= 7
     end
   end
-end
-
-def render_mill_90(x_pos, y_pos)
-  nokia.primitives << {
-    x: x_pos,
-    x2: x_pos,
-    y: y_pos - 2,
-    y2: y_pos + 2,
-    **PALLETTE[:secondary],
-    primitive_marker: :line
-  }
-
-  nokia.primitives << {
-    x: x_pos + 2,
-    x2: x_pos - 2,
-    y: y_pos,
-    y2: y_pos,
-    **PALLETTE[:secondary],
-    primitive_marker: :line
-  }
-end
-
-def render_mill_45(x_pos, y_pos)
-  nokia.primitives << {
-    x: x_pos,
-    y: y_pos,
-    w: 1,
-    h: 1,
-    **PALLETTE[:secondary],
-    primitive_marker: :solid
-  }
-
-  nokia.primitives << {
-    x: x_pos - 1,
-    y: y_pos - 1,
-    w: 1,
-    h: 1,
-    **PALLETTE[:secondary],
-    primitive_marker: :solid
-  }
-  nokia.primitives << {
-    x: x_pos - 2,
-    y: y_pos - 2,
-    w: 1,
-    h: 1,
-    **PALLETTE[:secondary],
-    primitive_marker: :solid
-  }
-  nokia.primitives << {
-    x: x_pos + 1,
-    y: y_pos + 1,
-    w: 1,
-    h: 1,
-    **PALLETTE[:secondary],
-    primitive_marker: :solid
-  }
-  nokia.primitives << {
-    x: x_pos + 2,
-    y: y_pos + 2,
-    w: 1,
-    h: 1,
-    **PALLETTE[:secondary],
-    primitive_marker: :solid
-  }
-
-  nokia.primitives << {
-    x: x_pos - 1,
-    y: y_pos + 1,
-    w: 1,
-    h: 1,
-    **PALLETTE[:secondary],
-    primitive_marker: :solid
-  }
-  nokia.primitives << {
-    x: x_pos - 2,
-    y: y_pos + 2,
-    w: 1,
-    h: 1,
-    **PALLETTE[:secondary],
-    primitive_marker: :solid
-  }
-  nokia.primitives << {
-    x: x_pos + 1,
-    y: y_pos - 1,
-    w: 1,
-    h: 1,
-    **PALLETTE[:secondary],
-    primitive_marker: :solid
-  }
-  nokia.primitives << {
-    x: x_pos + 2,
-    y: y_pos - 2,
-    w: 1,
-    h: 1,
-    **PALLETTE[:secondary],
-    primitive_marker: :solid
-  }
-end
-
-def render_mill(args)
-  x_pos = 2
-  y_pos = 18
-  mill = args.state.selected_mill
-
-  nokia.primitives << { 
-    x: x_pos, y: y_pos,
-    w: 16, h: 16,
-    **PALLETTE[:primary],
-    primitive_marker: :solid
-  }
-
-  nokia.primitives << { 
-    x: x_pos + 18, y: y_pos,
-    w: 62, h: 16,
-    **PALLETTE[:primary],
-    primitive_marker: :solid
-  }
-
-  # Calculate production speed based on mill level for display
-  production_speed = 10 - [mill.level * 2, 9].min
-  speed_text = production_speed == 1 ? "Fast" : (production_speed >= 8 ? "Slow" : "Medium")
   
-  if mill.level > 0
-    nokia.primitives << {
-      x: x_pos + 20, y: y_pos + 16,
-      **PALLETTE[:secondary],
-      text: "Auto Prod: #{1}/grain",
-      size_px: 6,
-      font: "tiny.ttf",
-      primitive_marker: :label
-    }
-  else
-    nokia.primitives << {
-      x: x_pos + 20, y: y_pos + 16,
-      **PALLETTE[:secondary],
-      text: "Manual Grinding",
-      size_px: 6,
-      font: "tiny.ttf",
-      primitive_marker: :label
-    }
-  end
-
   nokia.primitives << {
-    x: x_pos + 20, y: y_pos + 11,
-    **PALLETTE[:secondary],
-    text: "Speed: #{speed_text}",
+    x: NOKIA_WIDTH / 2 - 15,
+    y: 12,
+    w: 10,
+    h: 10,
+    **PALLETTE[args.state.confirm_selection == 0 ? :primary : :secondary],
+    primitive_marker: :solid
+  }
+  
+  nokia.primitives << {
+    x: NOKIA_WIDTH / 2 - 15 + 5,
+    y: 12 + 5,
+    text: "Y",
+    **PALLETTE[args.state.confirm_selection == 0 ? :secondary : :primary],
+    alignment_enum: 1, # Center aligned
+    vertical_alignment_enum: 1, # Center aligned
     size_px: 6,
     font: "tiny.ttf",
     primitive_marker: :label
   }
-
+  
   nokia.primitives << {
-    x: x_pos + 20, y: y_pos + 6,
-    **PALLETTE[:secondary],
-    text: "Grain: #{mill.grain_amount || 0}/#{mill.max_grain}",
+    x: NOKIA_WIDTH / 2 + 5,
+    y: 12,
+    w: 10,
+    h: 10,
+    **PALLETTE[args.state.confirm_selection == 1 ? :primary : :secondary],
+    primitive_marker: :solid
+  }
+  
+  nokia.primitives << {
+    x: NOKIA_WIDTH / 2 + 5 + 5,
+    y: 12 + 5,
+    text: "N",
+    **PALLETTE[args.state.confirm_selection == 1 ? :secondary : :primary],
+    alignment_enum: 1, # Center aligned
+    vertical_alignment_enum: 1, # Center aligned
     size_px: 6,
     font: "tiny.ttf",
     primitive_marker: :label
   }
-
-  nokia.primitives << {
-    x: x_pos, y: 2,
-    w: NOKIA_WIDTH - 4,
-    h: 14,
-    **PALLETTE[:primary],
-    primitive_marker: :solid
-  }
-
-  nokia.primitives << {
-    x: x_pos + 4, y: 5,
-    w: 20,
-    h: 8,
-    **PALLETTE[args.state.mill_selection == 0 ? :primary : :secondary],
-    primitive_marker: :solid
-  }
-
-  nokia.primitives << {
-    x: x_pos + 4, y: 5,
-    w: 20,
-    h: 8,
-    **PALLETTE[:secondary],
-    primitive_marker: :border
-  }
-
-  nokia.primitives << { 
-    x: x_pos + 7, y: 12,
-    text: "Upg.",
-    size_px: 6,
-    font: "tiny.ttf",
-    primitive_marker: :label,
-    **PALLETTE[args.state.mill_selection == 0 ? :secondary : :primary]
-  }
-
-  button_text = (mill.grain_amount && mill.grain_amount >= mill.max_grain) ? "Coll." : "Grind"
-  
-  nokia.primitives << {
-    x: x_pos + 30, y: 5,
-    w: 20,
-    h: 8,
-    **PALLETTE[args.state.mill_selection == 1 ? :primary : :secondary],
-    primitive_marker: :solid
-  }
-
-  nokia.primitives << {
-    x: x_pos + 30, y: 5,
-    w: 20,
-    h: 8,
-    **PALLETTE[:secondary],
-    primitive_marker: :border
-  }
-
-  nokia.primitives << { 
-    x: x_pos + 32, y: 12,
-    text: button_text,
-    size_px: 6,
-    font: "tiny.ttf",
-    primitive_marker: :label,
-    **PALLETTE[args.state.mill_selection == 1 ? :secondary : :primary]
-  }
-
-  nokia.primitives << {
-  x: x_pos + 56, y: 5,
-    w: 20,
-    h: 8,
-    **PALLETTE[args.state.mill_selection == 2 ? :primary : :secondary],
-    primitive_marker: :solid
-  }
-
-  nokia.primitives << {
-    x: x_pos + 56, y: 5,
-    w: 20,
-    h: 8,
-    **PALLETTE[:secondary],
-    primitive_marker: :border
-  }
-
-  nokia.primitives << { 
-    x: x_pos + 58, y: 12,
-    text: "Back",
-    size_px: 6,
-    font: "tiny.ttf",
-    primitive_marker: :label,
-    **PALLETTE[args.state.mill_selection == 2 ? :secondary : :primary]
-  }
-  
-  # Render the mill in the center of the box
-  if args.state.selected_mill.turn_state == 0
-    render_mill_90(x_pos + 8, y_pos + 8)
-  elsif args.state.selected_mill.turn_state == 1
-    render_mill_45(x_pos + 8, y_pos + 8)
-  elsif args.state.selected_mill.turn_state == 2
-    # Render horizontally
-    nokia.primitives << {
-      x: x_pos + 6,
-      x2: x_pos + 10,
-      y: y_pos + 8,
-      y2: y_pos + 8,
-      **PALLETTE[:secondary],
-      primitive_marker: :line
-    }
-  else
-    # Render at -45 degrees
-    nokia.primitives << {
-      x: x_pos + 8,
-      y: y_pos + 8,
-      w: 1,
-      h: 1,
-      **PALLETTE[:secondary],
-      primitive_marker: :solid
-    }
-    nokia.primitives << {
-      x: x_pos + 9,
-      y: y_pos + 7,
-      w: 1,
-      h: 1,
-      **PALLETTE[:secondary],
-      primitive_marker: :solid
-    }
-    nokia.primitives << {
-      x: x_pos + 10,
-      y: y_pos + 6,
-      w: 1,
-      h: 1,
-      **PALLETTE[:secondary],
-      primitive_marker: :solid
-    }
-    nokia.primitives << {
-      x: x_pos + 7,
-      y: y_pos + 9,
-      w: 1,
-      h: 1,
-      **PALLETTE[:secondary],
-      primitive_marker: :solid
-    }
-    nokia.primitives << {
-      x: x_pos + 6,
-      y: y_pos + 10,
-      w: 1,
-      h: 1,
-      **PALLETTE[:secondary],
-      primitive_marker: :solid
-    }
-    nokia.primitives << {
-      x: x_pos + 7,
-      y: y_pos + 7,
-      w: 1,
-      h: 1,
-      **PALLETTE[:secondary],
-      primitive_marker: :solid
-    }
-    nokia.primitives << {
-      x: x_pos + 6,
-      y: y_pos + 6,
-      w: 1,
-      h: 1,
-      **PALLETTE[:secondary],
-      primitive_marker: :solid
-    }
-    nokia.primitives << {
-      x: x_pos + 9,
-      y: y_pos + 9,
-      w: 1,
-      h: 1,
-      **PALLETTE[:secondary],
-      primitive_marker: :solid
-    }
-    nokia.primitives << {
-      x: x_pos + 10,
-      y: y_pos + 10,
-      w: 1,
-      h: 1,
-      **PALLETTE[:secondary],
-      primitive_marker: :solid
-    }
-  end
 end
 
-def render_grind_screen(args)
-  # Show animation of mill spinning and grinding grain
-  x_pos = 2
-  y_pos = 18
-  mill = args.state.selected_mill
+def render_buildings(args)
+  visible_buildings = args.state.buildings.select { |b| args.state.money >= b.visible_threshold || b[:count] > 0 }
   
-  # Show the mill in the center
-  nokia.primitives << { 
-    x: x_pos, y: y_pos,
-    w: NOKIA_WIDTH - 4, h: 15,
-    **PALLETTE[:primary],
-    primitive_marker: :solid
-  }
+  # Calculate grid layout dimensions
+  columns = 3
+  rows = (args.state.buildings.length / columns.to_f).ceil
   
-  mill_x = NOKIA_WIDTH / 2
-  mill_y = y_pos + 8
-  
-  if args.state.selected_mill.turn_state == 0
-    render_mill_90(mill_x, mill_y)
-  elsif args.state.selected_mill.turn_state == 1
-    render_mill_45(mill_x, mill_y)
-  elsif args.state.selected_mill.turn_state == 2
-    nokia.primitives << {
-      x: mill_x - 2,
-      x2: mill_x + 2,
-      y: mill_y,
-      y2: mill_y,
-      **PALLETTE[:secondary],
-      primitive_marker: :line
-    }
-  else
-    nokia.primitives << {
-      x: mill_x,
-      y: mill_y,
-      w: 1,
-      h: 1,
-      **PALLETTE[:secondary],
-      primitive_marker: :solid
-    }
-    nokia.primitives << {
-      x: mill_x + 1,
-      y: mill_y - 1,
-      w: 1,
-      h: 1,
-      **PALLETTE[:secondary],
-      primitive_marker: :solid
-    }
-    nokia.primitives << {
-      x: mill_x + 2,
-      y: mill_y - 2,
-      w: 1,
-      h: 1,
-      **PALLETTE[:secondary],
-      primitive_marker: :solid
-    }
-    nokia.primitives << {
-      x: mill_x - 1,
-      y: mill_y + 1,
-      w: 1,
-      h: 1,
-      **PALLETTE[:secondary],
-      primitive_marker: :solid
-    }
-    nokia.primitives << {
-      x: mill_x - 2,
-      y: mill_y + 2,
-      w: 1,
-      h: 1,
-      **PALLETTE[:secondary],
-      primitive_marker: :solid
-    }
-    nokia.primitives << {
-      x: mill_x - 1,
-      y: mill_y - 1,
-      w: 1,
-      h: 1,
-      **PALLETTE[:secondary],
-      primitive_marker: :solid
-    }
-    nokia.primitives << {
-      x: mill_x - 2,
-      y: mill_y - 2,
-      w: 1,
-      h: 1,
-      **PALLETTE[:secondary],
-      primitive_marker: :solid
-    }
-    nokia.primitives << {
-      x: mill_x + 1,
-      y: mill_y + 1,
-      w: 1,
-      h: 1,
-      **PALLETTE[:secondary],
-      primitive_marker: :solid
-    }
-    nokia.primitives << {
-      x: mill_x + 2,
-      y: mill_y + 2,
-      w: 1,
-      h: 1,
-      **PALLETTE[:secondary],
-      primitive_marker: :solid
-    }
-  end
+  cell_width = (NOKIA_WIDTH - 4) / columns
+  cell_height = (NOKIA_HEIGHT - STATUS_BAR_H - 4) / rows
 
-  nokia.primitives << {
-    x: x_pos, y: 2,
-    w: NOKIA_WIDTH - 4,
-    h: 14,
-    **PALLETTE[:primary],
-    primitive_marker: :solid
-  }
-  
-  # Back button  
-  nokia.primitives << {
-    x: 12, y: 5,
-    w: 20, h: 8,
-    **PALLETTE[args.state.grind_selection == 0 ? :secondary : :primary],
-    primitive_marker: :solid
-  }
-
-  nokia.primitives << {
-    x: 12, y: 5,
-    w: 20,
-    h: 8,
-    **PALLETTE[:secondary],
-    primitive_marker: :border
-  }
-  
-  nokia.primitives << { 
-    x: 14, y: 12,
-    text: "Back",
-    size_px: 6,
-    font: "tiny.ttf",
-    primitive_marker: :label,
-    **PALLETTE[args.state.grind_selection == 0 ? :primary : :secondary]
-  }
-
+  visible_buildings.each_with_index do |building, idx|
+    row = (idx / columns).to_i
+    col = idx % columns
     
-  # Grind button
-  nokia.primitives << {
-    x: 50, y: 5,
-    w: 20, h: 8,
-    **PALLETTE[args.state.grind_selection == 1 ? :secondary : :primary],
-    primitive_marker: :solid
-  }
+    # Calculate position
+    x = col * cell_width + 2
+    y = NOKIA_HEIGHT - STATUS_BAR_H - (row + 1) * cell_height - 2
 
+    # Draw selection rectangle if this is the selected building
+    if idx == args.state.selection.idx
+      nokia.primitives << {
+        x: x,
+        y: y,
+        w: cell_width,
+        h: cell_height,
+        **PALLETTE[:primary],
+        primitive_marker: :border
+      }
+    end
+    
+    # Draw building icon
+    # icon_size = [cell_width, cell_height].min * 0.7
+    # nokia.primitives << {
+    #   x: x + (cell_width - icon_size) / 2,
+    #   y: y + (cell_height - icon_size) / 2,
+    #   w: icon_size,
+    #   h: icon_size,
+    #   **PALLETTE[:primary],
+    #   primitive_marker: building.count > 0 ? :solid : :border
+    # }
 
+    nokia.primitives << {
+      x: x + 2,
+      y: y,
+      **PALLETTE[:primary],
+      text: building.short_name,
+      size_px: 6,
+      font: "tiny.ttf",
+      alignment_enum: 0,
+      vertical_alignment_enum: 0,
+      primitive_marker: :label
+    }
+    
+    nokia.primitives << {
+      x: x + cell_width - 2,
+      y: y + 4,
+      text: building[:count],
+      **PALLETTE[:primary],
+      alignment_enum: 2, # Right aligned
+      vertical_alignment_enum: 0, # Top aligned
+      size_px: 6,
+      font: "tiny.ttf",
+      primtiive_marker: :label
+    }
+  end
+  
+  # Add generate income button at the bottom of the screen
   nokia.primitives << {
-    x: 50, y: 5,
-    w: 20,
-    h: 8,
-    **PALLETTE[:secondary],
+    x: 2,
+    y: 2,
+    w: NOKIA_WIDTH - 4,
+    h: 10,
+    **PALLETTE[:primary],
     primitive_marker: :border
   }
   
-  nokia.primitives << { 
-    x: 52, y: 12,
-    text: "Grind",
+  nokia.primitives << {
+    x: NOKIA_WIDTH / 2,
+    y: 7,
+    text: "GENERATE INCOME (G)",
+    **PALLETTE[:primary],
+    alignment_enum: 1, # Center aligned
+    vertical_alignment_enum: 1, # Center aligned
     size_px: 6,
     font: "tiny.ttf",
-    primitive_marker: :label,
-    **PALLETTE[args.state.grind_selection == 1 ? :primary : :secondary],
+    primitive_marker: :label
   }
 end
 
-# def render_info_bar(args)
-#   nokia.solids << {
-#     x: 0, y: 0,
-#     w: NOKIA_WIDTH,
-#     h: 4,
-#     **PALLETTE[:primary]
-#   }
-
-#   text = "Purchase Mill $100"
-
-#   w, h = $gtk.calcstringbox(text, size_px: 6, font: "tiny.ttf")
-#   nokia.labels << {
-#     x: 1, y: h / 2,
-#     w: NOKIA_WIDTH,
-#     h: 4,
-#     text: text,
-#     size_px: 6,
-#     vertical_alignment_enum: 1,
-#     font: "tiny.ttf",
-#     **PALLETTE[:secondary]
-#   }
-# end
-
-def render_room_status_bar(args)
-  nokia.primitives << { 
-    x: 0, y: NOKIA_HEIGHT - STATUS_BAR_H,
+def render_status_bar(args)
+  # Status bar background
+  nokia.primitives << {
+    x: 0,
+    y: NOKIA_HEIGHT - STATUS_BAR_H,
     w: NOKIA_WIDTH,
     h: STATUS_BAR_H,
     **PALLETTE[:primary],
     primitive_marker: :solid
   }
-
-  text = "$#{args.state.money} L:#{args.state.level} T:#{args.state.time}"
-
-  w, h = $gtk.calcstringbox(text, size_px: 6, font: "tiny.ttf")
+  
+  # Money display
   nokia.primitives << {
-    x: 1, y: NOKIA_HEIGHT - h,
-    w: NOKIA_WIDTH,
-    h: STATUS_BAR_H,
-    text: text,
-    size_px: 6,
-    vertical_alignment_enum: 1,
-    font: "tiny.ttf",
+    x: 2,
+    y: NOKIA_HEIGHT - 2,
+    text: "$#{args.state.money.to_i}",
     **PALLETTE[:secondary],
-    primitive_marker: :label
+    alignment_enum: 0, # Left aligned
+    size_px: 6,
+    font: "tiny.ttf",
+    primtiive_marker: :label
   }
-end 
-
-def render_mill_status_bar(args)
-  nokia.primitives << { 
-    x: 0, y: NOKIA_HEIGHT - STATUS_BAR_H,
-    w: NOKIA_WIDTH,
-    h: STATUS_BAR_H,
-    **PALLETTE[:primary],
-    primitive_marker: :solid
-  }
-
-  text = "Mill lvl #{args.state.selected_mill.level}"
-  if args.state.view == :grind 
-    text += " Grain #{args.state.selected_mill.grain_amount}/#{args.state.selected_mill.max_grain}"
-  else
-    text += " (Upg. $#{calculate_cost(args.state.selected_mill.upgrade_cost, args.state.selected_mill.level)})" 
-  end
-
-  w, h = $gtk.calcstringbox(text, size_px: 6, font: "tiny.ttf")
+  
+  # Income display
   nokia.primitives << {
-    x: 1, y: NOKIA_HEIGHT - h,
-    w: NOKIA_WIDTH,
-    h: STATUS_BAR_H,
-    text: text,
-    size_px: 6,
-    vertical_alignment_enum: 1,
-    font: "tiny.ttf",
+    x: NOKIA_WIDTH - 2,
+    y: NOKIA_HEIGHT - 2,
+    text: "+$#{args.state.income_per_second.to_i}/s",
     **PALLETTE[:secondary],
-    primitive_marker: :label
+    alignment_enum: 2, # Right aligned
+    size_px: 6,
+    font: "tiny.ttf",
+    primtiive_marker: :label
   }
 end
