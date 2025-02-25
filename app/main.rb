@@ -51,56 +51,56 @@ BUILDINGS = [
     short_name: "Win.",
     base_cost: 150,
     income: 10,
-    visible_threshold: 50
+    visible_threshold: 5
   },
   {
     name: "Shop",
     short_name: "Sho.",
     base_cost: 1000,
     income: 50,
-    visible_threshold: 500
+    visible_threshold: 50
   },
   {
     name: "Store",
     short_name: "Sto.",
     base_cost: 5000,
     income: 200,
-    visible_threshold: 2000
+    visible_threshold: 250
   },
   {
     name: "Factory",
     short_name: "Fac.",
     base_cost: 20000,
     income: 1000,
-    visible_threshold: 10000
+    visible_threshold: 1000
   },
   {
     name: "Bank",
     short_name: "Ban.",
     base_cost: 100000,
     income: 5000,
-    visible_threshold: 50000
+    visible_threshold: 5000
   },
   {
     name: "Tower",
     short_name: "Tow.",
     base_cost: 500000,
     income: 20000,
-    visible_threshold: 200000
+    visible_threshold: 25000
   },
   {
     name: "Castle",
     short_name: "Cas.",
     base_cost: 2000000,
     income: 100000,
-    visible_threshold: 1000000
+    visible_threshold: 100000
   },
   {
     name: "Kingdom",
     short_name: "Kin.",
     base_cost: 10000000,
     income: 500000,
-    visible_threshold: 5000000
+    visible_threshold: 500000
   }
 ]
 
@@ -188,9 +188,11 @@ def handle_confirm_input(args)
   end
 end
 
-def handle_main_input(args)
-  visible_buildings = args.state.buildings.select { |b| args.state.money >= b.visible_threshold || b[:count] > 0 }
-  
+def visible_buildings
+  $args.state.buildings.select { |b| $args.state.income_per_second >= b.visible_threshold || b[:count] > 0 }
+end
+
+def handle_main_input(args)  
   # Calculate grid layout dimensions
   columns = 3
   rows = (visible_buildings.length / columns.to_f).ceil
@@ -212,7 +214,6 @@ def handle_main_input(args)
 end
 
 def process_building_select(args)
-  visible_buildings = args.state.buildings.select { |b| args.state.money >= b[:visible_threshold] }
   building = visible_buildings[args.state.selection.idx]
   
   if building
@@ -349,9 +350,7 @@ def render_confirm(args)
   }
 end
 
-def render_buildings(args)
-  visible_buildings = args.state.buildings.select { |b| args.state.money >= b.visible_threshold || b[:count] > 0 }
-  
+def render_buildings(args) 
   # Calculate grid layout dimensions
   columns = 3
   rows = (args.state.buildings.length / columns.to_f).ceil
@@ -449,11 +448,14 @@ def render_status_bar(args)
     primitive_marker: :solid
   }
   
-  # Money display
+  money_text = args.state.money.to_i
+  if money_text >= 1_000_000_000
+    money_text = "%.2E" % money_text
+  end
   nokia.primitives << {
     x: 2,
     y: NOKIA_HEIGHT - 2,
-    text: "$#{args.state.money.to_i}",
+    text: "$#{money_text}",
     **PALLETTE[:secondary],
     alignment_enum: 0, # Left aligned
     size_px: 6,
