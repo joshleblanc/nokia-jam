@@ -201,6 +201,7 @@ def process_mill_button_select(args)
     else
       # Only go to grinding view for level 0 mills
       if args.state.selected_mill.level == 0
+        args.state.grind_selection = 1
         args.state.view = :grind
       end
     end
