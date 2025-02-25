@@ -43,16 +43,19 @@ MILL = {
   level: 0,
   purchased: false,
   turn_state: 0,
+  upgrade_cost: 50,
+  max_grain: 100
 }
 
 def boot(args)
   args.state = {
     level: 1,
-    money: 0,
+    money: 50,
     time: 0,
     view: :room,
     confirm_open: false,
     confirm_selection: 0,
+    mill_selection: 0,
     selection: {
       x: 0,
       y: 0
@@ -84,6 +87,8 @@ def tick(args)
     handle_confirm_input(args)
   elsif args.state.view == :room
     handle_room_input(args)
+  elsif args.state.view == :mill
+    handle_mill_input(args)
   end
 
   if args.state.view == :room
@@ -115,6 +120,10 @@ def nokia
   $args.outputs[:nokia]
 end
 
+def calculate_cost(base_cost, level, multiplier = 1.15)
+  (base_cost * (multiplier ** level)).floor
+end
+
 def handle_confirm_input(args)
   if args.inputs.keyboard.key_down.left
     args.state.confirm_selection = (args.state.confirm_selection - 1).clamp(0, 1)
@@ -122,6 +131,31 @@ def handle_confirm_input(args)
     args.state.confirm_selection = (args.state.confirm_selection + 1).clamp(0, 1)
   elsif args.inputs.keyboard.key_down.space
     process_confirm(args)
+  end
+end
+
+def handle_mill_input(args)
+  if args.inputs.keyboard.key_down.left
+    args.state.mill_selection = (args.state.mill_selection - 1).clamp(0, 2)
+  elsif args.inputs.keyboard.key_down.right
+    args.state.mill_selection = (args.state.mill_selection + 1).clamp(0, 2)
+  elsif args.inputs.keyboard.key_down.space
+    process_mill_select(args)
+  end
+end
+
+def process_mill_select(args)
+  if args.state.mill_selection == 0
+    cost = calculate_cost(args.state.selected_mill.upgrade_cost, args.state.selected_mill.level)
+    if args.state.money >= cost
+      args.state.money -= cost
+      args.state.selected_mill.level += 1
+    end 
+  elsif args.state.mill_selection == 1
+    args.state.view = :grind
+  elsif args.state.mill_selection == 2
+    args.state.selected_mill = nil
+    args.state.view = :room
   end
 end
 
@@ -156,9 +190,15 @@ def process_mill_select(args)
     args.state.selected_mill = mill
     args.state.view = :mill
   else
-    confirm(args, "Do you want to buy a mill for 50 money?") do |result|
-      if result
+    confirm(args, "Do you want to buy a mill for $#{mill.upgrade_cost}?") do |result|
+      if result && args.state.money >= mill.upgrade_cost
         mill.purchased = true
+        args.state.money -= mill.upgrade_cost
+        mill.level = 1
+        args.state.mills.flatten.each do |m|
+          next if m == mill
+          m.upgrade_cost += 50
+        end
       end
     end
   end
@@ -477,6 +517,94 @@ def render_mill(args)
     primitive_marker: :solid
   }
 
+  nokia.primitives << { 
+    x: x_pos + 4, y: 5,
+    w: 20,
+    h: 8,
+    **PALLETTE[args.state.mill_selection == 0 ? :primary : :secondary],
+    primitive_marker: :solid
+  }
+
+  nokia.primitives << {
+    x: x_pos + 4, y: 5,
+    w: 20,
+    h: 8,
+    **PALLETTE[:secondary],
+    primitive_marker: :border
+  }
+
+  nokia.primitives << { 
+    x: x_pos + 7, y: 12,
+    text: "Upg.",
+    size_px: 6,
+    font: "tiny.ttf",
+    primitive_marker: :label,
+    **PALLETTE[args.state.mill_selection == 0 ? :secondary : :primary]
+  }
+
+  nokia.primitives << {
+    x: x_pos + 30, y: 5,
+    w: 20,
+    h: 8,
+    **PALLETTE[args.state.mill_selection == 1 ? :primary : :secondary],
+    primitive_marker: :solid
+  }
+
+  nokia.primitives << {
+    x: x_pos + 30, y: 5,
+    w: 20,
+    h: 8,
+    **PALLETTE[:secondary],
+    primitive_marker: :border
+  }
+
+  nokia.primitives << { 
+    x: x_pos + 32, y: 12,
+    text: "Grind",
+    size_px: 6,
+    font: "tiny.ttf",
+    primitive_marker: :label,
+    **PALLETTE[args.state.mill_selection == 1 ? :secondary : :primary]
+  }
+
+  nokia.primitives << {
+  x: x_pos + 56, y: 5,
+    w: 20,
+    h: 8,
+    **PALLETTE[args.state.mill_selection == 2 ? :primary : :secondary],
+    primitive_marker: :solid
+  }
+
+  nokia.primitives << {
+    x: x_pos + 56, y: 5,
+    w: 20,
+    h: 8,
+    **PALLETTE[:secondary],
+    primitive_marker: :border
+  }
+
+  nokia.primitives << { 
+    x: x_pos + 58, y: 12,
+    text: "Back",
+    size_px: 6,
+    font: "tiny.ttf",
+    primitive_marker: :label,
+    **PALLETTE[args.state.mill_selection == 2 ? :secondary : :primary]
+  }
+  
+  # nokia.primitives << { 
+  #   x: x_pos + 1, y: 16,
+  #   text: "Grind grain with the arrow keys",
+  #   size_px: 6,
+  #   font: "tiny.ttf",
+  #   primitive_marker: :label,
+  #   **PALLETTE[:secondary]
+  # }
+
+  render_mill_90(x_pos + 8, y_pos + 8)
+end
+
+def render_grind_screen(args)
   split_text("Grind grain with the arrow keys", NOKIA_WIDTH - 4).each_with_index do |line, y|
     nokia.primitives << {
       x: x_pos + 2, y: 13 - y * 6,
@@ -488,16 +616,6 @@ def render_mill(args)
       primitive_marker: :label
     }
   end
-  # nokia.primitives << { 
-  #   x: x_pos + 1, y: 16,
-  #   text: "Grind grain with the arrow keys",
-  #   size_px: 6,
-  #   font: "tiny.ttf",
-  #   primitive_marker: :label,
-  #   **PALLETTE[:secondary]
-  # }
-
-  render_mill_90(x_pos + 8, y_pos + 8)
 end
 
 # def render_info_bar(args)
@@ -557,7 +675,7 @@ def render_mill_status_bar(args)
     primitive_marker: :solid
   }
 
-  text = "Mill lvl 2"
+  text = "Mill lvl #{args.state.selected_mill.level} (Upg. $#{args.state.selected_mill.upgrade_cost})"
 
   w, h = $gtk.calcstringbox(text, size_px: 6, font: "tiny.ttf")
   nokia.primitives << {
