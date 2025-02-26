@@ -21,6 +21,27 @@ OFFSET_Y = (HEIGHT - NOKIA_HEIGHT * ZOOM) / 2
 ZOOMED_WIDTH = NOKIA_WIDTH * ZOOM
 ZOOMED_HEIGHT = NOKIA_HEIGHT * ZOOM
 
+# to generate a song
+# CM = %w[c1 e1 g1]
+# GM = %w[g1 b1 d1]
+# Am = %w[a1 c1 e1]
+# FM = %w[f1 a1 c1]
+
+SONG = %w[g1 d1 g2 d1 f#1 d1 a1 d2 nil g1 d1 g2 d1 c1 e1 c1 b1 nil e1 c1 g1 c1 e1]
+CHORDS = [CM, GM, Am, FM] * 4
+
+# CHORDS.each do |chord|
+#   SONG.push *chord.shuffle
+# end
+# SONG.each_with_index do |chord, index|
+#   if rand < 0.1
+#     SONG[index] = nil
+#   end
+# end
+p SONG
+NOTES = SONG #["e1", "e1", "g1", nil, "c1", "e1", "e1", nil, "c1", "c1", "b1", nil, "d1", "f1", "c1", nil, "f1", "c1", "c1", nil, "g1", "g1", "b1", nil, "g1", "b1", "f1", nil, "f1", "g1", "d1", nil, "a1", "b1", "a1", nil, "a1", "e1", "a1", nil, "c1", "c1", "a1", nil, "c1", "g1", "a1"]
+TEST = NOTES #24.times.map { NOTES.sample }
+
 PALLETTE = {
   primary: {
     r: 78,
@@ -115,7 +136,12 @@ def boot(args)
     selection: {
       idx: 0
     },
-    buildings: []
+    buildings: [],
+    manual_clicks: [],
+    manual_income_rate: 0,
+    hint_visibility: 10,
+    jingle_note: 0,
+    jingle_timer: 0
   }
   
   BUILDINGS.each do |building_type|
@@ -168,6 +194,21 @@ def tick(args)
     h: ZOOMED_HEIGHT,
     path: :nokia
   }
+
+  if args.state.sound_to_play 
+    args.audio[:sound] = { input: args.state.sound_to_play }
+    args.state.sound_to_play = nil
+  elsif args.state.jingle_timer == 0
+    
+    music = SONG
+    args.audio[:sound] = { input: "sounds/nokia_3310_composer/#{music[args.state.jingle_note]}.wav" }
+    args.state.jingle_note += 1
+    args.state.jingle_note = 0 if args.state.jingle_note >= music.length
+    args.state.jingle_timer = 16
+  else
+    args.state.jingle_timer -= 1
+  end
+
 end
 
 def nokia 
@@ -192,6 +233,10 @@ def visible_buildings
   $args.state.buildings.select { |b| $args.state.income_per_second >= b.visible_threshold || b[:count] > 0 }
 end
 
+def play_sound(what)
+  $args.state.sound_to_play = what
+end
+
 def handle_main_input(args)  
   # Calculate grid layout dimensions
   columns = 3
@@ -207,9 +252,17 @@ def handle_main_input(args)
     args.state.selection.idx = (args.state.selection.idx + columns) % visible_buildings.length
   elsif args.inputs.keyboard.key_down.space
     process_building_select(args)
+    play_sound "sounds/nokia_soundpack_@trix/blip5.wav"
   elsif args.inputs.keyboard.key_down.g
     # Generate 1 money when pressing G
     args.state.money += 1
+
+    args.state.hint_visibility -= 1
+    args.state.hint_visibility = args.state.hint_visibility.clamp(0, 255)
+    
+    play_sound "sounds/nokia_soundpack_@trix/blip4.wav"
+    # Record the timestamp of this click
+    args.state.manual_clicks << args.state.tick_count
   end
 end
 
@@ -219,6 +272,8 @@ def process_building_select(args)
   if building
     confirm(args, "Buy #{building.name} for $#{building.cost}?") do |result|
       if result && args.state.money >= building.cost
+        play_sound "sounds/nokia_soundpack_@trix/good3.wav"
+
         args.state.money -= building.cost
         building[:count] += 1
         args.state.income_per_second += building.income
@@ -228,6 +283,8 @@ def process_building_select(args)
           building.base_cost, 
           building[:count]
         )
+      else
+        play_sound "sounds/nokia_soundpack_@trix/blip8.wav"
       end
     end
   end
@@ -236,6 +293,10 @@ end
 def process_passive_income(args)
   # Add income every frame (60 fps)
   args.state.money += args.state.income_per_second / 60.0
+  
+  # Calculate manual income rate by counting clicks in the last second (60 ticks)
+  args.state.manual_clicks.reject! { |timestamp| timestamp < args.state.tick_count - 60 }
+  args.state.manual_income_rate = args.state.manual_clicks.length
 end
 
 def process_confirm(args)
@@ -366,7 +427,6 @@ def render_buildings(args)
     x = col * cell_width + 2
     y = NOKIA_HEIGHT - STATUS_BAR_H - (row + 1) * cell_height - 2
 
-    # Draw selection rectangle if this is the selected building
     if idx == args.state.selection.idx
       nokia.primitives << {
         x: x,
@@ -377,17 +437,6 @@ def render_buildings(args)
         primitive_marker: :border
       }
     end
-    
-    # Draw building icon
-    # icon_size = [cell_width, cell_height].min * 0.7
-    # nokia.primitives << {
-    #   x: x + (cell_width - icon_size) / 2,
-    #   y: y + (cell_height - icon_size) / 2,
-    #   w: icon_size,
-    #   h: icon_size,
-    #   **PALLETTE[:primary],
-    #   primitive_marker: building.count > 0 ? :solid : :border
-    # }
 
     nokia.primitives << {
       x: x + 2,
@@ -414,13 +463,12 @@ def render_buildings(args)
     }
   end
   
-  # Add generate income button at the bottom of the screen
   nokia.primitives << {
     x: 2,
     y: 2,
     w: NOKIA_WIDTH - 4,
     h: 10,
-    **PALLETTE[:primary],
+    **PALLETTE[:primary], a: args.state.hint_visibility == 0 ? 0 : 255,
     primitive_marker: :border
   }
   
@@ -428,7 +476,7 @@ def render_buildings(args)
     x: NOKIA_WIDTH / 2,
     y: 7,
     text: "GENERATE INCOME (G)",
-    **PALLETTE[:primary],
+    **PALLETTE[:primary], a: args.state.hint_visibility == 0 ? 0 : 255,
     alignment_enum: 1, # Center aligned
     vertical_alignment_enum: 1, # Center aligned
     size_px: 6,
@@ -438,7 +486,6 @@ def render_buildings(args)
 end
 
 def render_status_bar(args)
-  # Status bar background
   nokia.primitives << {
     x: 0,
     y: NOKIA_HEIGHT - STATUS_BAR_H,
@@ -463,11 +510,12 @@ def render_status_bar(args)
     primtiive_marker: :label
   }
   
-  # Income display
+  total_income = args.state.income_per_second + args.state.manual_income_rate
+  
   nokia.primitives << {
     x: NOKIA_WIDTH - 2,
     y: NOKIA_HEIGHT - 2,
-    text: "+$#{args.state.income_per_second.to_i}/s",
+    text: "+$#{total_income.to_i}/s",
     **PALLETTE[:secondary],
     alignment_enum: 2, # Right aligned
     size_px: 6,
