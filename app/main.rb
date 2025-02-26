@@ -126,6 +126,8 @@ BUILDINGS = [
 ]
 
 def boot(args)
+  return if load_game(args)
+
   args.state = {
     money: 0,
     income_per_second: 0,
@@ -155,6 +157,10 @@ def boot(args)
       visible_threshold: building_type.visible_threshold
     }
   end
+end
+
+def shutdown(args)
+  save_game(args)
 end
 
 def tick(args)
@@ -199,7 +205,6 @@ def tick(args)
     args.audio[:sound] = { input: args.state.sound_to_play }
     args.state.sound_to_play = nil
   elsif args.state.jingle_timer == 0
-    
     music = SONG
     args.audio[:sound] = { input: "sounds/nokia_3310_composer/#{music[args.state.jingle_note]}.wav" }
     args.state.jingle_note += 1
@@ -208,7 +213,24 @@ def tick(args)
   else
     args.state.jingle_timer -= 1
   end
+end
 
+def save_game(args)
+  args.state.confirm_open = false 
+  args.state.confirm_block = nil
+  args.state.confirm_message = nil
+  args.state.confirm_result = nil
+  $gtk.serialize_state("savegame.txt", args.state)
+end
+
+def load_game(args)
+  parsed_state = $gtk.deserialize_state("savegame.txt")
+  if parsed_state
+    args.state = parsed_state
+    return true
+  else
+    return false
+  end
 end
 
 def nokia 
@@ -283,6 +305,7 @@ def process_building_select(args)
           building.base_cost, 
           building[:count]
         )
+        save_game(args)
       else
         play_sound "sounds/nokia_soundpack_@trix/blip8.wav"
       end
@@ -355,11 +378,10 @@ def render_confirm(args)
     lines = split_text(args.state.confirm_message, NOKIA_WIDTH - 22)
     lines.each do |line|
       nokia.primitives << {
-        x: NOKIA_WIDTH / 2,
+        x: NOKIA_WIDTH / 2 - (NOKIA_WIDTH - 22) / 2 + 2,
         y: y_offset,
         text: line,
         **PALLETTE[:primary],
-        alignment_enum: 1, # Center aligned
         size_px: 6,
         font: "tiny.ttf",
         primitive_marker: :label
