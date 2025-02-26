@@ -240,11 +240,11 @@ def save_game(args)
   args.state.confirm_block = nil
   args.state.confirm_message = nil
   args.state.confirm_result = nil
-  $gtk.serialize_state("savegame.txt", args.state)
+  $gtk.serialize_state("saves/savegame.txt", args.state)
 end
 
 def load_game(args)
-  parsed_state = $gtk.deserialize_state("savegame.txt")
+  parsed_state = $gtk.deserialize_state("saves/savegame.txt")
   if parsed_state
     args.state = parsed_state
     return true

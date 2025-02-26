@@ -9,4 +9,4 @@ gameid=town-grinder
 gametitle=Town Grinder
 version=0.1
 icon=metadata/icon.png
-
+ignore_directories=saves
