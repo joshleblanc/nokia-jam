@@ -28,7 +28,7 @@ ZOOMED_HEIGHT = NOKIA_HEIGHT * ZOOM
 # FM = %w[f1 a1 c1]
 
 SONG = %w[g1 d1 g2 d1 f#1 d1 a1 d2 nil g1 d1 g2 d1 c1 e1 c1 b1 nil e1 c1 g1 c1 e1]
-CHORDS = [CM, GM, Am, FM] * 4
+#CHORDS = [CM, GM, Am, FM] * 4
 
 # CHORDS.each do |chord|
 #   SONG.push *chord.shuffle
@@ -40,7 +40,7 @@ CHORDS = [CM, GM, Am, FM] * 4
 # end
 p SONG
 NOTES = SONG #["e1", "e1", "g1", nil, "c1", "e1", "e1", nil, "c1", "c1", "b1", nil, "d1", "f1", "c1", nil, "f1", "c1", "c1", nil, "g1", "g1", "b1", nil, "g1", "b1", "f1", nil, "f1", "g1", "d1", nil, "a1", "b1", "a1", nil, "a1", "e1", "a1", nil, "c1", "c1", "a1", nil, "c1", "g1", "a1"]
-TEST = NOTES #24.times.map { NOTES.sample }
+#TEST = NOTES #24.times.map { NOTES.sample }
 
 PALLETTE = {
   primary: {
