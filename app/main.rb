@@ -125,7 +125,7 @@ BUILDINGS = [
   }
 ]
 
-def boot(args)
+def start_game(args)
   return if load_game(args)
 
   args.state = {
@@ -142,8 +142,8 @@ def boot(args)
     manual_clicks: [],
     manual_income_rate: 0,
     hint_visibility: 10,
-    jingle_note: 0,
-    jingle_timer: 0
+    jingle_timer: 0,
+    jingle_note: 0
   }
   
   BUILDINGS.each do |building_type|
@@ -157,6 +157,15 @@ def boot(args)
       visible_threshold: building_type.visible_threshold
     }
   end
+end
+
+def boot(args)
+  args.state = {
+    view: :menu,
+    menu_selection: 0,
+    jingle_note: 0,
+    jingle_timer: 0
+  }
 end
 
 def shutdown(args)
@@ -177,20 +186,29 @@ def tick(args)
     h: 1,
   }
 
-  process_passive_income(args)
+  if args.state.view == :game 
+    process_passive_income(args)
 
-  if args.state.confirm_open
-    handle_confirm_input(args)
-  else
-    handle_main_input(args)
-  end
-
-  render_status_bar(args)
-  render_buildings(args)
+    if args.state.confirm_open
+      handle_confirm_input(args)
+    else
+      handle_main_input(args)
+    end
   
-  if args.state.confirm_open
-    render_confirm(args)
+    render_status_bar(args)
+    render_buildings(args)
+    
+    if args.state.confirm_open
+      render_confirm(args)
+    end
+  elsif args.state.view == :menu
+    handle_menu_input(args)
+    render_menu(args)
+  elsif args.state.view == :help
+    handle_help_input(args)
+    render_help(args)
   end
+  
 
   # Render the Nokia screen to the main output
   args.outputs.sprites << {
@@ -216,6 +234,8 @@ def tick(args)
 end
 
 def save_game(args)
+  return if args.state.view != :game
+
   args.state.confirm_open = false 
   args.state.confirm_block = nil
   args.state.confirm_message = nil
@@ -231,6 +251,118 @@ def load_game(args)
   else
     return false
   end
+end
+
+def handle_menu_input(args)
+  if args.inputs.keyboard.key_down.up 
+    args.state.menu_selection -= 1
+    args.state.menu_selection = args.state.menu_selection.clamp(0, 1)
+  elsif args.inputs.keyboard.key_down.down
+    args.state.menu_selection += 1
+    args.state.menu_selection = args.state.menu_selection.clamp(0, 1)
+  elsif args.inputs.keyboard.key_down.space
+    if args.state.menu_selection == 0
+      start_game(args)
+      args.state.view = :game
+    elsif args.state.menu_selection == 1
+      args.state.view = :help
+    end
+  end
+end
+
+def handle_help_input(args)
+  if args.inputs.keyboard.key_down.space
+    args.state.view = :menu
+  end
+end
+
+def render_help(args)
+  lines = ["SPACE -", "    Confirm Selection", "Arrow keys -", "    Move selection", "G - Generate money"]
+  lines.each_with_index do |line, index|
+    nokia.primitives << {
+      x: 1,
+      y: NOKIA_HEIGHT - index * 7,
+      text: line,
+      **PALLETTE[:primary],
+      size_px: 6,
+      font: "tiny.ttf",
+      primitive_marker: :label
+    }
+  end
+
+  nokia.primitives << { 
+    x: 36, y: 8,
+    text: "BACK",
+    **PALLETTE[:primary],
+    size_px: 6,
+    font: "tiny.ttf",
+    primitive_marker: :label
+  }
+
+  nokia.primitives << {
+    x: 32, y: 1,
+    w: 24,
+    h: 8,
+    **PALLETTE[:primary],
+    primitive_marker: :border
+  }
+end
+
+def render_menu(args)
+  nokia.primitives << {
+    x: 2, y: NOKIA_HEIGHT,
+    text: "TOWN",
+    **PALLETTE[:primary],
+    size_px: 12,
+    font: "tiny.ttf",
+    primitive_marker: :label
+  }
+  nokia.primitives << {
+    x: 16, y: NOKIA_HEIGHT - 10,
+    text: "GRINDER",
+    **PALLETTE[:primary],
+    size_px: 12,
+    font: "tiny.ttf",
+    primitive_marker: :label
+  }
+
+  nokia.primitives << {
+    x: NOKIA_WIDTH / 2 - (NOKIA_WIDTH / 2) / 2, y: 1,
+    w: NOKIA_WIDTH / 2,
+    h: NOKIA_HEIGHT - 24,
+    **PALLETTE[:primary],
+    primitive_marker: :solid
+  }
+
+  nokia.primitives << {
+    x: 34, y: 20,
+    w: NOKIA_WIDTH / 4,
+    h: 8,
+    **PALLETTE[:secondary],
+    primitive_marker: :label,
+    text: "PLAY",
+    size_px: 6,
+    font: "tiny.ttf"
+  }
+
+  nokia.primitives << {
+    x: 34, y: 12,
+    w: NOKIA_WIDTH / 4,
+    h: 8,
+    **PALLETTE[:secondary],
+    primitive_marker: :label,
+    text: "HELP",
+    size_px: 6,
+    font: "tiny.ttf"
+  }
+
+  nokia.primitives << {
+    x: 32, y: (args.state.menu_selection == 0 ? 20 : 12) - 7,
+    w: NOKIA_WIDTH / 4,
+    h: 8,
+    **PALLETTE[:secondary],
+    primitive_marker: :border,
+  }
 end
 
 def nokia 
